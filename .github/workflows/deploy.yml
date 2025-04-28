@@ -15,7 +15,6 @@ on:
 # Environment Variables
 # -----------------------------------------------------------------------------
 env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   DEPLOY_DIRECTORY: ${{ secrets.DEPLOY_DIRECTORY }}
 
 jobs:
@@ -37,7 +36,7 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: Install dependencies
+      - name: Install dependencies and build
         run: yarn install --immutable
 
       - name: Build
@@ -69,8 +68,80 @@ jobs:
           name: Release ${{ inputs.tag_name }}
           generate_release_notes: true
 
-  deploy:
+  # ---------------------------------------------------------------------------
+  # Clone Repo Job: Clone the repository if it doesn't exist
+  # ---------------------------------------------------------------------------
+  clone-repo:
     needs: create_tag_and_release
+    runs-on: [DEVOPS-UBU-DEV]
+    environment: next_frontend_prod
+    steps:
+      - name: Check if directory exists
+        id: check_dir
+        run: |
+          # Ensure deploy directory exists
+          mkdir -p $DEPLOY_DIRECTORY && cd $DEPLOY_DIRECTORY
+          # Store the value in exists variable
+          if [ ! -d "${{ github.event.repository.name }}" ]; then
+          echo "exists=false" >> $GITHUB_OUTPUT
+          else
+          echo "exists=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Clone repo
+        if: steps.check_dir.outputs.exists == 'false'
+        run: |
+          cd $DEPLOY_DIRECTORY
+          git clone git@github.com:${{ github.repository_owner }}/${{ github.event.repository.name }}.git
+
+      - name: Cleanup on Failure (rollback tag and release)
+        if: failure()
+        run: |
+          cd $DEPLOY_DIRECTORY/${{ github.event.repository.name }}
+          # Find and delete the GitHub release
+          echo "Finding release with tag ${{ inputs.tag_name }}"
+          release_id=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ inputs.tag_name }}" | jq -r '.id')
+          if [ "$release_id" != "null" ] && [ -n "$release_id" ]; then
+          echo "Deleting release ID: $release_id"
+          delete_response=$(curl -X DELETE -s -w "%{http_code}" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$release_id")
+
+          if [[ "$delete_response" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Successfully deleted release"
+          else
+              echo "Failed to delete release: $delete_response"
+              exit 1
+          fi
+          else
+          echo "No release found with tag ${{ inputs.tag_name }}"
+          fi
+          # Delete local tag if it exists
+          echo "Checking for local tag ${{ inputs.tag_name }}"
+          if git rev-parse "${{ inputs.tag_name }}" >/dev/null 2>&1; then
+          echo "Deleting local tag ${{ inputs.tag_name }}"
+          git tag -d "${{ inputs.tag_name }}"
+          else
+          echo "Local tag ${{ inputs.tag_name }} not found"
+          fi
+          # Delete remote tag
+          echo "Deleting remote tag ${{ inputs.tag_name }}"
+          git_delete_response=$(git push --delete origin "${{ inputs.tag_name }}" 2>&1)
+          git_exit_code=$?
+          if [ $git_exit_code -eq 0 ]; then
+          echo "Successfully deleted remote tag"
+          else
+          # Check if the error is because the tag doesn't exist remotely
+          if [[ "$git_delete_response" == *"remote ref does not exist"* ]]; then
+              echo "Remote tag ${{ inputs.tag_name }} does not exist"
+          else
+              echo "Failed to delete remote tag: $git_delete_response"
+              exit 1
+          fi
+          fi
+
+  deploy:
+    needs: clone-repo
     runs-on: [DEVOPS-UBU-DEV]
     environment: next_frontend_prod
     steps:
@@ -95,8 +166,8 @@ jobs:
             echo "PM2 app $APP_NAME is running with $INSTANCES instances."
             pm2 reload $APP_NAME --update-env
           else
-            echo "PM2 app $APP_NAME is not running."
-            pm2 start yarn --name $APP_NAME -- start       
+            echo "PM2 app $APP_NAME is not running."    
+            pm2 start node_modules/next/dist/bin/next --name $APP_NAME
             pm2 save
           fi
           # Clean up working directory
