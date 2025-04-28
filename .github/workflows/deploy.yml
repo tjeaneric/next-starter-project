@@ -36,19 +36,17 @@ jobs:
         with:
           node-version: "22.x"
 
-      - name: Install dependencies
+      - name: Install dependencies and build
         run: |
-          #   yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
-          corepack prepare yarn@4.9.1 --activate
+          yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
           yarn -v
+          ls
+          pwd
           yarn install --immutable
+          yarn run build
 
       - name: Build
         run: yarn run build
-
-      - name: Remove the installed yarn
-        run: |
-          corepack uninstall $(sed -nE 's/.*"packageManager": "([^"]+)".*/\1/p' package.json)
 
   # ---------------------------------------------------------------------------
   # Release Job: Create Git tag and GitHub release
