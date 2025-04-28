@@ -38,7 +38,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          corepack install $(sed -nE 's/.*"packageManager": "([^"]+)".*/\1/p' package.json)
+          yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
           yarn install --immutable
 
       - name: Build
