@@ -38,7 +38,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
+          #   yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
+          corepack prepare yarn@4.9.1 --activate
           yarn -v
           yarn install --immutable
 
