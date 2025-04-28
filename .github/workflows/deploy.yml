@@ -1,0 +1,103 @@
+name: next-frontend-prod-deploy
+
+# -----------------------------------------------------------------------------
+# Workflow Triggers & Inputs
+# -----------------------------------------------------------------------------
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name to deploy"
+        required: true
+        default: "vx.x.x"
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  DEPLOY_DIRECTORY: ${{ secrets.DEPLOY_DIRECTORY }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build Job: Build the application
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ${{matrix.runner}}
+    strategy:
+      matrix:
+        runner: [DEVOPS-UBU-DEV]
+    environment: next_frontend_prod
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn run build
+
+  # ---------------------------------------------------------------------------
+  # Release Job: Create Git tag and GitHub release
+  # ---------------------------------------------------------------------------
+  create_tag_and_release:
+    needs: build
+    runs-on: [DEVOPS-UBU-DEV]
+    environment: next_frontend_prod
+    permissions:
+      contents: write # Required permission for creating releases
+    steps:
+      - name: Delete the local tag if it exists
+        run: |
+          git tag -d ${{ inputs.tag_name }} || true
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Annotated Tag
+        uses: softprops/action-gh-release@v2
+        with:
+          target_commitish: ${{ github.ref_name }}
+          tag_name: ${{ inputs.tag_name }}
+          name: Release ${{ inputs.tag_name }}
+          generate_release_notes: true
+
+  deploy:
+    needs: create_tag_and_release
+    runs-on: [DEVOPS-UBU-DEV]
+    environment: next_frontend_prod
+    steps:
+      - name: Deploy
+        run: |
+          cd $DEPLOY_DIRECTORY/${{ github.event.repository.name }}
+
+          # Checkout desired tag
+          git fetch --all
+          git checkout ${{ inputs.tag_name }}
+
+          # Install and build
+          yarn install --immutable
+          yarn run build
+
+          # PM2 deployment strategy
+          APP_NAME=${{ github.event.repository.name }}
+          INSTANCES=$(pm2 jlist | jq --arg app_name "$APP_NAME" '.[] | select(.name == $app_name) | .pm2_env.instances // 0' | head -n 1)
+          # If the app is already running, perform zero-downtime reload
+          # Otherwise, start the app
+          if [[ "$INSTANCES" -gt 0 ]]; then
+            echo "PM2 app $APP_NAME is running with $INSTANCES instances."
+            pm2 reload $APP_NAME --update-env
+          else
+            echo "PM2 app $APP_NAME is not running."
+            pm2 start yarn --name $APP_NAME -- start       
+            pm2 save
+          fi
+          # Clean up working directory
+          git reset --hard HEAD
