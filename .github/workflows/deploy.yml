@@ -35,6 +35,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
+          yarn-version: "package-json" # Use the version from package.json
+          cache: "yarn"
+          cache-dependency-path: "**/yarn.lock"
 
       - name: Install dependencies
         run: yarn install --immutable
