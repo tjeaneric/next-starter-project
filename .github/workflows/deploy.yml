@@ -35,15 +35,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.x"
-          yarn-version: "package-json" # Use the version from package.json
-          cache: "yarn"
-          cache-dependency-path: "**/yarn.lock"
 
       - name: Install dependencies
-        run: yarn install --immutable
+        run: |
+          corepack install $(sed -nE 's/.*"packageManager": "([^"]+)".*/\1/p' package.json)
+          yarn install --immutable
 
       - name: Build
         run: yarn run build
+
+      - name: Remove the installed yarn
+        run: |
+          corepack uninstall $(sed -nE 's/.*"packageManager": "([^"]+)".*/\1/p' package.json)
 
   # ---------------------------------------------------------------------------
   # Release Job: Create Git tag and GitHub release
