@@ -39,6 +39,7 @@ jobs:
       - name: Install dependencies
         run: |
           yarn set version $(cat package.json | jq -r '.packageManager | split("@")[1]')
+          yarn -v
           yarn install --immutable
 
       - name: Build
