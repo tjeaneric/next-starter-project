@@ -42,3 +42,14 @@ next-env.d.ts
 
 # newrelic
 *newrelic*.log*
+
+
+# testing
+/blob-report/
+/coverage
+/playwright/.cache/
+/playwright-report/
+/test-results/
+
+# Playwright
+node_modules/

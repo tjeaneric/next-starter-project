@@ -19,9 +19,9 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Build Job: Build the application
+  # Build and Test Job: Build and Test the application
   # ---------------------------------------------------------------------------
-  build:
+  build-and-test:
     runs-on: ${{matrix.runner}}
     strategy:
       matrix:
@@ -42,11 +42,13 @@ jobs:
       - name: Build
         run: yarn run build
 
+      - name: Test
+        run: yarn test
   # ---------------------------------------------------------------------------
   # Release Job: Create Git tag and GitHub release
   # ---------------------------------------------------------------------------
   create_tag_and_release:
-    needs: build
+    needs: build-and-test
     runs-on: [DEVOPS-UBU-DEV]
     environment: next_frontend_prod
     permissions:
